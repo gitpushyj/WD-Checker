@@ -5,7 +5,17 @@ on:
     # 10분마다. 무료 러너는 스케줄 지연이 있어 실제로는 15~40분 간격이 될 수 있습니다.
     # 정확한 10분 간격은 맥 로컬 launchd 쪽이 담당합니다.
     - cron: '*/10 * * * *'
+  # 손으로 돌릴 때 쓰는 입구. 설정이 맞는지 확인할 때 요긴하다.
   workflow_dispatch:
+    inputs:
+      mode:
+        description: '무엇을 할까요'
+        type: choice
+        default: check
+        options:
+          - check          # 평소처럼 검사 (빈자리가 없으면 메일도 없음)
+          - test-notify    # 시험 메일을 보내 설정이 맞는지 확인
+          - show           # 감시 대상 현황만 로그에 출력
 
 # 상태 파일을 커밋해야 하므로 쓰기 권한이 필요합니다.
 permissions:
@@ -29,11 +39,22 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
           WATCH_SOURCE: GitHub
-        run: python3 watch.py --state state.github.json
+        run: |
+          case "${{ inputs.mode || 'check' }}" in
+            test-notify)
+              python3 watch.py --test-notify
+              ;;
+            show)
+              python3 watch.py --dry-run --state state.github.json
+              ;;
+            *)
+              python3 watch.py --state state.github.json
+              ;;
+          esac
 
       # 검사가 실패해도 상태(오류 알림 기록 포함)는 남겨야 중복 알림이 안 갑니다.
       - name: 상태 저장
-        if: always()
+        if: always() && inputs.mode != 'test-notify' && inputs.mode != 'show'
         run: |
           if [ -z "$(git status --porcelain state.github.json)" ]; then
             echo "변경 없음"

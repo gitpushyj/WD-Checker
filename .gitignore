@@ -1,4 +1,12 @@
+# 비밀번호가 들어 있는 파일 — 절대 올리면 안 됩니다
 .env
+
+# 맥 로컬 감시가 쓰는 상태 (GitHub 쪽은 state.github.json 을 커밋합니다)
 state.local.json
-watch.log
+
+# 로그와 손상된 상태 파일
+watch.log*
+launchd.log*
+*.corrupt
+
 __pycache__/

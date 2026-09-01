@@ -408,8 +408,33 @@ def now_kst():
     return datetime.now(KST)
 
 
+LOG_MAX_BYTES = 512 * 1024      # 이 크기를 넘으면 한 세대만 남기고 새로 쓴다
+
+
+def rotate_log(path, keep_backup=True):
+    """로그가 커지면 정리한다.
+
+    10분마다 한 줄이면 한 달에 400KB 쯤 된다. 예식까지 1년을 돌리는 데다
+    오류가 반복되면 스택 추적이 쌓여 훨씬 빨리 불어나므로 두 세대만 남긴다.
+    launchd 가 열어둔 파일은 이름을 바꾸면 새 로그가 옛 파일로 흘러가므로
+    비우기만 한다.
+    """
+    try:
+        if not path.exists() or path.stat().st_size <= LOG_MAX_BYTES:
+            return
+        if keep_backup:
+            path.replace(path.with_name(path.name + ".1"))
+        else:
+            path.write_text("", encoding="utf-8")
+    except OSError:
+        pass                    # 로그 정리에 실패했다고 감시를 멈출 이유는 없다
+
+
 def make_logger(quiet=False):
     logfile = HERE / "watch.log"
+    rotate_log(logfile)                              # 실행 시작에 한 번만 확인한다
+    rotate_log(HERE / "launchd.log", keep_backup=False)
+
     def log(message):
         stamp = now_kst().strftime("%Y-%m-%d %H:%M:%S")
         line = f"[{stamp}] {message}"
@@ -736,6 +761,30 @@ def run_tests():
         check("주소가 아닌 값은 알려준다", "그냥 통과함", "오류로 알림")
     except ValueError as exc:
         check("주소가 아닌 값은 알려준다", "오타주소" in str(exc), True)
+
+    import tempfile
+    box = Path(tempfile.mkdtemp())
+
+    small = box / "small.log"
+    small.write_text("짧은 로그\n", encoding="utf-8")
+    rotate_log(small)
+    check("작은 로그는 그대로 둔다", small.exists() and not (box / "small.log.1").exists(), True)
+
+    big = box / "big.log"
+    big.write_text("x" * (LOG_MAX_BYTES + 1), encoding="utf-8")
+    rotate_log(big)
+    check("커지면 .1 로 밀어낸다", (box / "big.log.1").exists() and not big.exists(), True)
+
+    held = box / "held.log"
+    held.write_text("y" * (LOG_MAX_BYTES + 1), encoding="utf-8")
+    rotate_log(held, keep_backup=False)
+    check("열려 있는 파일은 비우기만 한다",
+          (held.exists(), held.stat().st_size, (box / "held.log.1").exists()), (True, 0, False))
+
+    rotate_log(box / "없는파일.log")
+    check("없는 파일에도 죽지 않는다", True, True)
+    shutil_rmtree = __import__("shutil").rmtree
+    shutil_rmtree(box, ignore_errors=True)
 
     check("설명 문구", describe("2027-09-12", 2), "2027년 9월 12일 (일) 2부 13:00")
 

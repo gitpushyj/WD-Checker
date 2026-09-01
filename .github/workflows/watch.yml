@@ -1,0 +1,51 @@
+name: 취소표 감시
+
+on:
+  schedule:
+    # 10분마다. 무료 러너는 스케줄 지연이 있어 실제로는 15~40분 간격이 될 수 있습니다.
+    # 정확한 10분 간격은 맥 로컬 launchd 쪽이 담당합니다.
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+# 상태 파일을 커밋해야 하므로 쓰기 권한이 필요합니다.
+permissions:
+  contents: write
+
+# 실행이 겹치면 상태 커밋이 충돌하므로 한 번에 하나만 돕니다.
+concurrency:
+  group: wedding-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 예약 현황 검사
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          WATCH_SOURCE: GitHub
+        run: python3 watch.py --state state.github.json
+
+      # 검사가 실패해도 상태(오류 알림 기록 포함)는 남겨야 중복 알림이 안 갑니다.
+      - name: 상태 저장
+        if: always()
+        run: |
+          if [ -z "$(git status --porcelain state.github.json)" ]; then
+            echo "변경 없음"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state.github.json
+          git commit -m "chore: 감시 상태 갱신 [skip ci]"
+          # 다른 실행이 먼저 밀어넣었을 수 있으므로 몇 번 다시 시도합니다.
+          for i in 1 2 3; do
+            git push && exit 0
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+          done
+          echo "상태 저장 실패 (알림은 이미 발송되었습니다)"

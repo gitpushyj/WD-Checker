@@ -1,5 +1,7 @@
 {
-  "notified": {},
+  "notified": {
+    "2027-09-11#3": "2026-10-16T13:57:37+09:00"
+  },
   "max_open": "2027-10",
   "last_good_config": {
     "targets": [
@@ -83,5 +85,5 @@
     ]
   },
   "last_error": null,
-  "last_check": "2026-10-16T09:33:23+09:00"
+  "last_check": "2026-10-16T13:57:37+09:00"
 }
